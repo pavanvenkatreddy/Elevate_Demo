@@ -323,7 +323,10 @@ class ChatInterface:
             with col2:
                 st.write(f"**Return**: {data['itinerary']['return_date'] or 'One-way'}")
                 st.write(f"**Passengers**: {data['itinerary']['passengers']}")
-                st.write(f"**Aircraft**: {data['itinerary']['aircraft_type']}")
+                if 'recommended_aircraft' in data and 'type' in data['recommended_aircraft']:
+                    st.write(f"**Aircraft**: {data['recommended_aircraft']['type']}")
+                else:
+                    st.write("**Aircraft**: Not specified")
             
             if 'total_price_usd' in data:
                 st.success(f"**Total Price**: ${data['total_price_usd']:,.0f} USD")

@@ -148,7 +148,11 @@ class QuoteResponse:
             "recommended_aircraft": {
                 "type": self.recommended_aircraft.aircraft.type,
                 "capacity": self.recommended_aircraft.aircraft.capacity,
-                "total_price_usd": float(self.recommended_aircraft.total_price_usd)
+                "total_price_usd": float(self.recommended_aircraft.total_price_usd),
+                "base_nm_rate": float(self.recommended_aircraft.aircraft.base_nm_rate),
+                "range_nm": self.recommended_aircraft.aircraft.range_nm,
+                "cruise_speed": self.recommended_aircraft.aircraft.cruise_speed,
+                "amenities": self.recommended_aircraft.aircraft.amenities
             },
             "currency": "USD",
             "total_price_usd": float(self.recommended_aircraft.total_price_usd)
