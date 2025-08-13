@@ -13,7 +13,7 @@ def main():
     st.set_page_config(page_title="Elevate Charter AI", page_icon="✈️")
     
     # Environment setup
-    BACKEND_URL = os.environ.get("BACKEND_URL", "https://pavanvenkat.pythonanywhere.com")
+    BACKEND_URL = os.environ.get("BACKEND_URL", "http://127.0.0.1:8000")
     
     # Header
     st.title("Elevate Charter AI ✈️")

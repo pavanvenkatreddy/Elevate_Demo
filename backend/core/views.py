@@ -50,21 +50,30 @@ class ChatViewHandler:
     """Handler for chat-based API endpoints."""
     
     def __init__(self):
-        self.chat_service = ChatService()
+        # Initialize OpenAI client if available
+        openai_client = None
+        if hasattr(settings, 'OPENAI_API_KEY') and settings.OPENAI_API_KEY:
+            try:
+                import openai
+                openai_client = openai.OpenAI(api_key=settings.OPENAI_API_KEY)
+            except Exception as e:
+                print(f"Failed to initialize OpenAI client: {e}")
+        
+        self.chat_service = ChatService(openai_client)
         self.trip_service = TripService()
     
     def handle_chat_message(self, message: str, conversation_history: list = None) -> dict:
         """Handle a chat message and return appropriate response."""
         # Try OpenAI processing first
-        if hasattr(settings, 'OPENAI_API_KEY') and settings.OPENAI_API_KEY:
-            try:
-                response = self.chat_service.process_chat_message(message)
-                if 'error' not in response:
-                    return response
-            except Exception:
-                pass  # Fall back to regex parsing
+        try:
+            response = self.chat_service.process_chat_message(message, conversation_history)
+            if response and 'error' not in response:
+                return response
+        except Exception as e:
+            print(f"OpenAI processing failed: {e}")
         
         # Fallback to regex parsing
+        print("Falling back to regex parsing")
         return self._parse_with_regex(message)
     
     def _parse_with_regex(self, message: str) -> dict:
@@ -117,6 +126,8 @@ class ChatViewHandler:
                 'legs': [quote_response.recommended_aircraft.outbound_leg.to_dict()],
                 'currency': 'USD',
                 'total_price_usd': float(quote_response.recommended_aircraft.total_price_usd),
+                'aircraft_options': quote_response.to_dict()['aircraft_options'],
+                'recommended_aircraft': quote_response.to_dict()['recommended_aircraft'],
             }
             
         except Exception as e:
@@ -157,13 +168,13 @@ class ChatViewHandler:
         """Extract departure date from message."""
         # Multiple patterns for date extraction
         date_patterns = [
+            r"\b(next\s+weekend)",                           # "next weekend" - must come first
+            r"\b(this\s+weekend)",                           # "this weekend" - must come first
             r"\b(on|depart|leav\w*)\s+([^,.]+)",           # "on Friday", "depart Monday"
             r"\b([A-Za-z]+\s+\d{1,2})",                     # "Friday 15", "Dec 20"
-            r"\b(next\s+[A-Za-z]+)",                        # "next weekend", "next Friday"
-            r"\b(this\s+[A-Za-z]+)",                        # "this weekend", "this Friday"
+            r"\b(next\s+[A-Za-z]+)",                        # "next Friday", "next Monday"
+            r"\b(this\s+[A-Za-z]+)",                        # "this Friday", "this Monday"
             r"\b(tomorrow|today)",                           # "tomorrow", "today"
-            r"\b(next\s+weekend)",                           # "next weekend"
-            r"\b(this\s+weekend)",                           # "this weekend"
             r"\b(weekend)",                                  # "weekend"
         ]
         

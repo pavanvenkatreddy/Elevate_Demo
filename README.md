@@ -83,6 +83,46 @@ Try these natural language inputs:
 - "Book a charter from New York to Miami on Friday, return Monday"
 - "Private jet for 8 passengers from Boston to Seattle departing next week"
 
+### **Conversation Flow Features**
+
+The chat system maintains **conversation context** and provides **intelligent follow-up handling**:
+
+#### **Memory & Context**
+- **Short-term memory**: Remembers the last 3 messages for immediate context
+- **Conversation state**: Maintains trip details across multiple messages
+- **Context-aware responses**: Understands follow-up questions without repetition
+
+#### **Smart Follow-up Handling**
+- **Partial information**: Asks clarifying questions for missing details
+- **Progressive completion**: Builds trip requests step-by-step
+- **Intelligent updates**: Handles changes to existing trip details
+
+#### **Conversation Examples**
+```
+User: "i need a jet"
+Bot: "I have some details: passengers: 1. I still need: origin, destination, departure_date. Can you provide these?"
+
+User: "from bos to lax"
+Bot: "Great! When would you like to depart from BOS to LAX?"
+
+User: "on friday"
+Bot: "Charter: 1 pax on Very Light Jet from BOS to LAX. Total: $29,802 USD."
+
+User: "i want a bigger aircraft"
+Bot: "Charter: 6 pax on Light Jet from BOS to LAX. Total: $XX,XXX USD."
+```
+
+#### **Follow-up Patterns**
+- **"bigger aircraft"** → Upgrades to larger aircraft with 4-6 passengers
+- **"for X people"** → Updates passenger count while maintaining route/date
+- **"return flight"** → Adds return date to existing one-way trip
+- **"change to X passengers"** → Updates passenger count and aircraft accordingly
+
+#### **Memory Limitations**
+- **Context window**: Currently limited to last 3 messages
+- **Long conversations**: May lose earlier context in extended chats
+- **Future improvements**: Planning to increase memory and add conversation summaries
+
 ## 🎯 **Code Quality Features**
 
 - **Type Hints**: Full Python type annotations for better IDE support

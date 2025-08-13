@@ -190,32 +190,205 @@ class ChatService:
         self.openai_client = openai_client
         self.trip_service = TripService()
     
-    def extract_trip_info(self, message: str) -> Optional[TripRequest]:
-        """Extract trip information from a natural language message."""
-        # This would integrate with OpenAI for natural language processing
-        # For now, return None to indicate fallback to regex parsing
-        return None
+    def extract_trip_info(self, message: str, conversation_history: list = None) -> Optional[TripRequest]:
+        """Extract trip information from a natural language message using OpenAI."""
+        if not self.openai_client:
+            return None
+            
+        try:
+            # Create a prompt for OpenAI to extract travel information
+            system_prompt = """You are a travel assistant that extracts flight information from natural language requests.
+            
+            Extract the following information and return ONLY a JSON object:
+            - origin: Airport code or city name (e.g., "BOS", "Boston")
+            - destination: Airport code or city name (e.g., "LAX", "Los Angeles") 
+            - departure_date: Date in YYYY-MM-DD format (e.g., "2024-08-16")
+            - return_date: Date in YYYY-MM-DD format or null if one-way
+            - passengers: Number of passengers (default to 1 if not specified)
+            
+            CRITICAL: For follow-up questions and updates, you MUST use the conversation context to fill in missing details.
+            
+            Follow-up question patterns:
+            - "bigger aircraft" → Use previous origin/destination/dates, increase passengers to 4-6, upgrade aircraft size
+            - "larger jet" → Use previous origin/destination/dates, increase passengers to 4-6, upgrade aircraft size
+            - "for X people" → Use previous origin/destination/dates, update passengers
+            - "return flight" → Use previous origin/destination, add return_date
+            - "change to X passengers" → Use previous origin/destination/dates, update passengers
+            - "is there a bigger aircraft" → Use previous origin/destination/dates, increase passengers to 4-6, upgrade aircraft size
+            - "show me other options" → Use previous origin/destination/dates, keep same passengers
+            - "for next friday" → Use previous origin/destination, update departure_date to next Friday
+            - "i want a bigger flight" → Use previous origin/destination/dates, increase passengers to 4-6, upgrade aircraft size
+            - "many guests" → Use previous origin/destination/dates, increase passengers to 8-12
+            - "biggest aircraft possible" → Use previous origin/destination/dates, increase passengers to 8-12
+            - "large group" → Use previous origin/destination/dates, increase passengers to 8-12
+            - "change aircraft to X" → Use previous origin/destination/dates/passengers, update aircraft preference
+            - "update departure to X" → Use previous origin/destination/passengers, update departure_date
+            
+            RULE: If the user asks a follow-up question without specifying origin/destination/dates, 
+            you MUST use the values from the previous conversation context.
+            
+            RULE: If the user provides partial information, extract what you can and leave missing fields as null.
+            
+            Examples:
+            "I need a jet from BOS to LAX on Friday" → {"origin": "BOS", "destination": "LAX", "departure_date": "2024-08-16", "return_date": null, "passengers": 1}
+            "bigger aircraft" → {"origin": "BOS", "destination": "LAX", "departure_date": "2024-08-16", "return_date": null, "passengers": 1}
+            "for 10 people" → {"origin": "BOS", "destination": "LAX", "departure_date": "2024-08-16", "return_date": null, "passengers": 10}
+            "from BOS" → {"origin": "BOS", "destination": null, "departure_date": null, "return_date": null, "passengers": 1}
+            
+            Return ONLY the JSON object, no other text."""
+            
+            # Build messages with conversation history
+            messages = [{"role": "system", "content": system_prompt}]
+            
+            # Add conversation history for context
+            if conversation_history:
+                print(f"Conversation history: {conversation_history}")
+                for msg in conversation_history[-3:]:  # Last 3 messages for context
+                    messages.append({"role": msg["role"], "content": msg["content"]})
+            
+            # Add current message
+            messages.append({"role": "user", "content": message})
+            
+            print(f"Full messages sent to OpenAI: {messages}")
+            
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                temperature=0.1,
+                max_tokens=200
+            )
+            
+            # Extract the JSON response
+            content = response.choices[0].message.content.strip()
+            
+            # Try to parse the JSON response
+            import json
+            import re
+            from datetime import date
+            
+            # Look for JSON in the response
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                data = json.loads(json_match.group())
+                
+                # Convert date strings to date objects
+                departure_date = date.fromisoformat(data['departure_date']) if data.get('departure_date') else None
+                return_date = date.fromisoformat(data['return_date']) if data.get('return_date') else None
+                
+                return TripRequest(
+                    origin=data['origin'],
+                    destination=data['destination'],
+                    departure_date=departure_date,
+                    return_date=return_date,
+                    passengers=data.get('passengers', 1)
+                )
+            
+            return None
+            
+        except Exception as e:
+            print(f"OpenAI extraction failed: {e}")
+            return None
     
-    def process_chat_message(self, message: str) -> dict:
+    def process_chat_message(self, message: str, conversation_history: list = None) -> dict:
         """Process a chat message and return appropriate response."""
         # Try OpenAI extraction first
+        print(f"OpenAI client available: {self.openai_client is not None}")
         if self.openai_client:
-            trip_request = self.extract_trip_info(message)
+            print("Attempting OpenAI extraction...")
+            trip_request = self.extract_trip_info(message, conversation_history)
+            print(f"OpenAI extraction result: {trip_request}")
+            
             if trip_request:
-                try:
-                    quote_response = self.trip_service.process_trip_request(trip_request)
-                    return {
-                        'reply': f"Charter: {trip_request.passengers} pax on {quote_response.recommended_aircraft.aircraft.type} from {trip_request.origin} to {trip_request.destination}. Total: ${quote_response.recommended_aircraft.total_price_usd:,.0f} USD.",
-                        'itinerary': quote_response.to_dict()['itinerary'],
-                        'legs': [quote_response.recommended_aircraft.outbound_leg.to_dict()],
-                        'currency': 'USD',
-                        'total_price_usd': float(quote_response.recommended_aircraft.total_price_usd),
-                    }
-                except Exception as e:
-                    return {'reply': f"Error processing request: {str(e)}", 'error': str(e)}
+                # Check if we have all required details
+                missing_details = self._check_missing_details(trip_request)
+                
+                if missing_details:
+                    # Ask for missing details
+                    return self._ask_for_missing_details(missing_details, trip_request, conversation_history)
+                else:
+                    # Generate quote with complete information
+                    try:
+                        quote_response = self.trip_service.process_trip_request(trip_request)
+                        return {
+                            'reply': f"Charter: {trip_request.passengers} pax on {quote_response.recommended_aircraft.aircraft.type} from {trip_request.origin} to {trip_request.destination}. Total: ${quote_response.recommended_aircraft.total_price_usd:,.0f} USD.",
+                            'itinerary': quote_response.to_dict()['itinerary'],
+                            'legs': [quote_response.recommended_aircraft.outbound_leg.to_dict()],
+                            'currency': 'USD',
+                            'total_price_usd': float(quote_response.recommended_aircraft.total_price_usd),
+                            'aircraft_options': quote_response.to_dict()['aircraft_options'],
+                            'recommended_aircraft': quote_response.to_dict()['recommended_aircraft'],
+                        }
+                    except Exception as e:
+                        return {'reply': f"Error processing request: {str(e)}", 'error': str(e)}
+            else:
+                # OpenAI couldn't extract info, ask for clarification
+                return self._ask_for_clarification(message, conversation_history)
         
         # Fallback response
         return {
             'reply': "I couldn't understand your request. Please try rephrasing or use the manual quote form.",
             'error': 'OpenAI processing failed'
+        }
+    
+    def _check_missing_details(self, trip_request: TripRequest) -> list:
+        """Check what details are missing from the trip request."""
+        missing = []
+        
+        if not trip_request.origin:
+            missing.append('origin')
+        if not trip_request.destination:
+            missing.append('destination')
+        if not trip_request.departure_date:
+            missing.append('departure_date')
+        if not trip_request.passengers or trip_request.passengers < 1:
+            missing.append('passengers')
+        
+        return missing
+    
+    def _ask_for_missing_details(self, missing_details: list, partial_request: TripRequest, conversation_history: list = None) -> dict:
+        """Generate a response asking for missing details."""
+        # Build context from partial request
+        context = []
+        if partial_request.origin:
+            context.append(f"origin: {partial_request.origin}")
+        if partial_request.destination:
+            context.append(f"destination: {partial_request.destination}")
+        if partial_request.departure_date:
+            context.append(f"date: {partial_request.departure_date}")
+        if partial_request.passengers and partial_request.passengers > 0:
+            context.append(f"passengers: {partial_request.passengers}")
+        
+        context_str = ", ".join(context) if context else "no details"
+        
+        # Generate appropriate question based on what's missing
+        if len(missing_details) == 1:
+            if 'origin' in missing_details:
+                question = f"I see you want to go to {partial_request.destination}. Where are you departing from?"
+            elif 'destination' in missing_details:
+                question = f"I see you're departing from {partial_request.origin}. Where would you like to go?"
+            elif 'departure_date' in missing_details:
+                question = f"Great! When would you like to depart from {partial_request.origin} to {partial_request.destination}?"
+            elif 'passengers' in missing_details:
+                question = f"How many passengers will be traveling from {partial_request.origin} to {partial_request.destination}?"
+        else:
+            question = f"I have some details: {context_str}. I still need: {', '.join(missing_details)}. Can you provide these?"
+        
+        return {
+            'reply': question,
+            'missing_details': missing_details,
+            'partial_request': {
+                'origin': partial_request.origin,
+                'destination': partial_request.destination,
+                'departure_date': partial_request.departure_date.isoformat() if partial_request.departure_date else None,
+                'return_date': partial_request.return_date.isoformat() if partial_request.return_date else None,
+                'passengers': partial_request.passengers
+            }
+        }
+    
+    def _ask_for_clarification(self, message: str, conversation_history: list = None) -> dict:
+        """Ask for clarification when the message is unclear."""
+        return {
+            'reply': "I'm not sure I understood your request. Could you please specify:\n• Where you're departing from\n• Where you're going\n• When you want to travel\n• How many passengers",
+            'missing_details': ['origin', 'destination', 'departure_date', 'passengers'],
+            'partial_request': None
         }

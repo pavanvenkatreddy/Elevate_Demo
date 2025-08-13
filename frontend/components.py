@@ -315,6 +315,16 @@ class ChatInterface:
     def _render_quote_details(data: Dict[str, Any]):
         """Render quote details in an expandable section."""
         with st.expander("📋 Quote Details"):
+            # Debug: Show what data we have
+            st.write("**Debug Info:**")
+            st.write(f"Data keys: {list(data.keys())}")
+            if 'recommended_aircraft' in data:
+                st.write(f"Recommended aircraft keys: {list(data['recommended_aircraft'].keys())}")
+                st.write(f"Recommended aircraft type: {data['recommended_aircraft'].get('type', 'NOT FOUND')}")
+            else:
+                st.write("No recommended_aircraft in data")
+            st.divider()
+            
             col1, col2 = st.columns(2)
             with col1:
                 st.write(f"**Origin**: {data['itinerary']['origin']}")
